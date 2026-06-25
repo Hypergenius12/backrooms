@@ -334,6 +334,7 @@ function buildChunk(cx, cz) {
   if (!chunkData.has(key)) chunkData.set(key, generateChunkData(cx, cz));
   const {m, prng} = chunkData.get(key);
 
+  const chunkGroup = new THREE.Group();
   const chunkFixtures = [];
 
   const wg=[], fg=[], cg=[];
