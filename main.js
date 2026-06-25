@@ -241,8 +241,7 @@ class PRNG {
 const CSZ=24, CELL=4, WH=2.72; // 24x24 cells per chunk
 const chunkData = new Map();
 const activeChunks = new Map();
-let globalLights = [];
-let globalFlickData = [];
+let globalFixtures = [];
 
 function getChunkKey(cx, cz) { return `${cx},${cz}`; }
 
@@ -335,9 +334,7 @@ function buildChunk(cx, cz) {
   if (!chunkData.has(key)) chunkData.set(key, generateChunkData(cx, cz));
   const {m, prng} = chunkData.get(key);
 
-  const chunkGroup = new THREE.Group();
-  const chunkLights = [];
-  const chunkFlickData = [];
+  const chunkFixtures = [];
 
   const wg=[], fg=[], cg=[];
   const offsetX = cx * CSZ * CELL;
@@ -396,13 +393,18 @@ function buildChunk(cx, cz) {
       const tube=new THREE.Mesh(tubeGeo,eMat);tube.position.set(wx,WH-.025,wz);chunkGroup.add(tube);
       
       if(!dead){
-        const pl=new THREE.PointLight(0xd4aa28,1.35,14,1.7);
-        pl.position.set(wx,WH-.13,wz); chunkGroup.add(pl);
-        pl.userData.eMat=eMat;
-        chunkLights.push(pl);
-        chunkFlickData.push({
-          base:.88+prng.next()*.55, wSpd:1.4+prng.next()*3.5, wPha:prng.next()*Math.PI*2,
-          wAmp:.055, doFlick:prng.next()<.15, flickOn:false, flickCD:3+prng.next()*10, flickDur:0
+        chunkFixtures.push({
+          pos: new THREE.Vector3(wx, WH-.13, wz),
+          eMat: eMat,
+          base: .88+prng.next()*.55,
+          wSpd: 1.4+prng.next()*3.5,
+          wPha: prng.next()*Math.PI*2,
+          wAmp: .055,
+          doFlick: prng.next()<.15,
+          flickOn: false,
+          flickCD: 3+prng.next()*10,
+          flickDur: 0,
+          intensity: 1.35
         });
       }
     }
@@ -421,15 +423,14 @@ function buildChunk(cx, cz) {
   }
 
   scene.add(chunkGroup);
-  activeChunks.set(key, {group: chunkGroup, lights: chunkLights, flickData: chunkFlickData});
-  globalLights.push(...chunkLights);
-  globalFlickData.push(...chunkFlickData);
+  activeChunks.set(key, {group: chunkGroup, fixtures: chunkFixtures});
+  globalFixtures.push(...chunkFixtures);
 }
 
 function updateChunks(playerX, playerZ) {
   const pChunkX = Math.floor(playerX / (CSZ * CELL));
   const pChunkZ = Math.floor(playerZ / (CSZ * CELL));
-  const radius = 2; // load 5x5 chunks around player
+  const radius = 1; // load 3x3 chunks around player (fog is 30m, chunk is 96m)
 
   const needed = new Set();
   for(let dz=-radius; dz<=radius; dz++){
@@ -442,10 +443,7 @@ function updateChunks(playerX, playerZ) {
   for (const [key, chunk] of activeChunks.entries()) {
     if (!needed.has(key)) {
       scene.remove(chunk.group);
-      // Clean up global lights
-      globalLights = globalLights.filter(l => !chunk.lights.includes(l));
-      globalFlickData = globalFlickData.filter(fd => !chunk.flickData.includes(fd));
-      // In a real app, call .dispose() on materials/geometries if they are unique
+      globalFixtures = globalFixtures.filter(f => !chunk.fixtures.includes(f));
       activeChunks.delete(key);
     }
   }
@@ -459,9 +457,16 @@ function updateChunks(playerX, playerZ) {
   }
 }
 
-/* ═══════ AMBIENT ═══════ */
+/* ═══════ AMBIENT & LIGHT POOL ═══════ */
 scene.add(new THREE.AmbientLight(0xd4aa18,.30));
 scene.add(new THREE.HemisphereLight(0xd4a010,0x5a4800,.20));
+
+const lightPool = [];
+for(let i=0; i<16; i++) {
+  const pl = new THREE.PointLight(0xd4aa28, 0, 14, 1.7);
+  scene.add(pl);
+  lightPool.push(pl);
+}
 
 /* ═══════ ENTITY / MONSTER ═══════ */
 class Entity{
@@ -654,16 +659,36 @@ updateChunks(camera.position.x, camera.position.z);
   camera.position.y=1.64+Math.sin(bobT*Math.PI*2)*.036*bobA;
   camera.quaternion.setFromEuler(new THREE.Euler(pitch,yaw,0,'YXZ'));
 
-  // Lights
-  for(let i=0;i<globalLights.length;i++){
-    const fd=globalFlickData[i],l=globalLights[i];
-    if(!l || !fd) continue;
-    const base=fd.base+Math.sin(time*fd.wSpd+fd.wPha)*fd.wAmp;
+  // Fixture flicker logic (update all fixtures)
+  for(let i=0;i<globalFixtures.length;i++){
+    const fd = globalFixtures[i];
+    const base = fd.base + Math.sin(time*fd.wSpd+fd.wPha)*fd.wAmp;
     if(fd.doFlick){
-      if(!fd.flickOn){fd.flickCD-=dt;l.intensity=base;if(fd.flickCD<=0){fd.flickOn=true;fd.flickDur=.08+Math.random()*.55;sfx.buzz(Math.min(fd.flickDur*.5,.3));fd.flickCD=2.5+Math.random()*14;}}
-      else{l.intensity=(Math.random()<.45)?.03:base*.9;fd.flickDur-=dt;if(fd.flickDur<=0){fd.flickOn=false;l.intensity=base;}}
-    }else{l.intensity=base;}
-    if(l.userData.eMat)l.userData.eMat.emissiveIntensity=THREE.MathUtils.clamp(l.intensity*.72,0,1);
+      if(!fd.flickOn){
+        fd.flickCD-=dt; fd.intensity=base;
+        if(fd.flickCD<=0){fd.flickOn=true;fd.flickDur=.08+Math.random()*.55;sfx.buzz(Math.min(fd.flickDur*.5,.3));fd.flickCD=2.5+Math.random()*14;}
+      } else {
+        fd.intensity=(Math.random()<.45)?.03:base*.9;
+        fd.flickDur-=dt;
+        if(fd.flickDur<=0){fd.flickOn=false;fd.intensity=base;}
+      }
+    }else{fd.intensity=base;}
+    if(fd.eMat) fd.eMat.emissiveIntensity = THREE.MathUtils.clamp(fd.intensity*.72, 0, 1);
+  }
+
+  // Light Pool Management (bind lights to closest fixtures)
+  globalFixtures.forEach(f => f.distSq = f.pos.distanceToSquared(camera.position));
+  globalFixtures.sort((a,b) => a.distSq - b.distSq);
+  
+  for(let i=0; i<lightPool.length; i++) {
+    const pl = lightPool[i];
+    if (i < globalFixtures.length && globalFixtures[i].distSq < 900) { // Within 30m
+      const f = globalFixtures[i];
+      pl.position.copy(f.pos);
+      pl.intensity = f.intensity;
+    } else {
+      pl.intensity = 0; // Turn off unused pool lights
+    }
   }
 
   // Entity
