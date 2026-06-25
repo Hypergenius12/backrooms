@@ -10,11 +10,11 @@ renderer.domElement.id='three';
 document.body.prepend(renderer.domElement);
 
 const scene=new THREE.Scene();
-scene.background=new THREE.Color(0x100d00);
-scene.fog=new THREE.FogExp2(0x100d00,0.046);
+scene.background=new THREE.Color(0x0a0800);
+scene.fog=new THREE.FogExp2(0x0a0800,0.046);
 
 const camera=new THREE.PerspectiveCamera(SET.fov,innerWidth/innerHeight,0.05,80);
-camera.position.set(6,1.64,6);
+camera.position.set(48,1.64,48); // Spawn in exact center of chunk 0,0
 
 addEventListener('resize',()=>{
   renderer.setSize(innerWidth,innerHeight);
@@ -64,7 +64,13 @@ class SFX{
     const g=this.ctx.createGain();g.gain.value=.06;
     src.connect(lp);lp.connect(g);g.connect(this.master);src.start();
   }
-  _schedDist(){setTimeout(()=>{this._distant();this._schedDist();},8000+Math.random()*35000);}
+  _schedDist(){
+    setTimeout(()=>{
+      if(Math.random()<0.6) this._distant();
+      else this._echoClank();
+      this._schedDist();
+    },6000+Math.random()*20000);
+  }
   _distant(){
     if(!this.on)return;
     const dur=1.5+Math.random()*4,src=this.ctx.createBufferSource();src.buffer=this._noise(dur);
@@ -76,6 +82,44 @@ class SFX{
     g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(vol,now+.5);
     g.gain.setValueAtTime(vol,now+dur-.5);g.gain.linearRampToValueAtTime(0,now+dur);
     src.connect(bp);bp.connect(pan);pan.connect(g);g.connect(this.master);src.start();
+  }
+  _echoClank(){
+    if(!this.on)return;
+    const dur = 0.15 + Math.random()*0.25;
+    const osc = this.ctx.createOscillator();
+    osc.type = Math.random()>0.5 ? 'square' : 'sawtooth';
+    
+    const now = this.ctx.currentTime;
+    osc.frequency.setValueAtTime(150 + Math.random()*800, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + dur);
+    
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 300 + Math.random()*1500; bp.Q.value = 4 + Math.random()*4;
+    
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(.12 + Math.random()*.08, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    const delay = this.ctx.createDelay(2.0);
+    delay.delayTime.value = 0.3 + Math.random()*0.5;
+    
+    const feedback = this.ctx.createGain();
+    feedback.gain.value = 0.55 + Math.random()*0.15; // 55-70% echo volume
+    
+    const pan = this.ctx.createStereoPanner();
+    pan.pan.value = (Math.random()-.5)*1.6;
+    
+    osc.connect(bp); bp.connect(g);
+    g.connect(pan); pan.connect(this.master);
+    
+    // Echo feedback loop
+    g.connect(delay);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    feedback.connect(pan);
+    
+    osc.start(now); osc.stop(now + dur);
   }
   step(dt,mv,sp){
     if(!this.on||!mv){this.stepCD=0;return;}
@@ -121,10 +165,15 @@ const realWallTex = texLoader.load('wallpaper.png');
 realWallTex.wrapS = realWallTex.wrapT = THREE.RepeatWrapping;
 realWallTex.repeat.set(2, 2);
 
-function mkFloor(){
-  const S=512,cv=document.createElement('canvas');cv.width=cv.height=S;
-  const c=cv.getContext('2d');
+function mkFloorTextures(){
+  const S=512;
+  const cv=document.createElement('canvas');cv.width=cv.height=S;
+  const cvR=document.createElement('canvas');cvR.width=cvR.height=S;
+  const c=cv.getContext('2d'), cR=cvR.getContext('2d');
+  
   c.fillStyle='#8a7a3c';c.fillRect(0,0,S,S);
+  cR.fillStyle='#d9d9d9';cR.fillRect(0,0,S,S);
+
   for(let i=0;i<S*S*.4;i++){
     const x=Math.random()*S,y=Math.random()*S;
     const len=.8+Math.random()*2.2,a=Math.random()*Math.PI*2;
@@ -133,14 +182,22 @@ function mkFloor(){
     c.lineWidth=.5;c.beginPath();c.moveTo(x,y);
     c.lineTo(x+Math.cos(a)*len,y+Math.sin(a)*len);c.stroke();
   }
-  for(let i=0;i<22;i++){
-    const x=Math.random()*S,y=Math.random()*S,r=2+Math.random()*14;
-    const g2=c.createRadialGradient(x,y,0,x,y,r);
-    g2.addColorStop(0,'rgba(26,16,0,.22)');g2.addColorStop(1,'rgba(26,16,0,0)');
-    c.fillStyle=g2;c.fillRect(x-r,y-r,r*2,r*2);
+
+  for(let i=0;i<30;i++){
+    const x=Math.random()*S,y=Math.random()*S,r=8+Math.random()*28;
+    const g=c.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0,'rgba(26,16,0,.35)');g.addColorStop(1,'rgba(26,16,0,0)');
+    c.fillStyle=g;c.fillRect(x-r,y-r,r*2,r*2);
+    
+    const gR=cR.createRadialGradient(x,y,0,x,y,r);
+    gR.addColorStop(0,'rgba(40,40,40,1)'); 
+    gR.addColorStop(1,'rgba(217,217,217,0)');
+    cR.fillStyle=gR;cR.fillRect(x-r,y-r,r*2,r*2);
   }
-  const t=new THREE.CanvasTexture(cv);
-  t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(6,6);return t;
+  
+  const map=new THREE.CanvasTexture(cv); map.wrapS=map.wrapT=THREE.RepeatWrapping; map.repeat.set(6,6);
+  const rough=new THREE.CanvasTexture(cvR); rough.wrapS=rough.wrapT=THREE.RepeatWrapping; rough.repeat.set(6,6);
+  return {map, rough};
 }
 
 function mkCeil(){
@@ -219,12 +276,16 @@ function mkCardboard(){
   const t=new THREE.CanvasTexture(cv);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;
 }
 
+const {map: floorMap, rough: floorRough} = mkFloorTextures();
 const matW=new THREE.MeshLambertMaterial({map:realWallTex,side:THREE.DoubleSide});
-const matF=new THREE.MeshLambertMaterial({map:mkFloor()});
+const matF=new THREE.MeshStandardMaterial({map:floorMap, roughnessMap:floorRough, metalness:0.2, color:0x7a6a2c});
 const matC=new THREE.MeshLambertMaterial({map:mkCeil()});
 const boxMat=new THREE.MeshLambertMaterial({map:mkCardboard()});
 const pipeMat=new THREE.MeshLambertMaterial({color:0x707058});
 const housingMat=new THREE.MeshLambertMaterial({color:0x555544});
+const trimMat=new THREE.MeshLambertMaterial({color:0x090703});
+const cabinetMat=new THREE.MeshStandardMaterial({color:0x6a6c6e, roughness:0.35, metalness:0.75});
+const ventMat=new THREE.MeshLambertMaterial({color:0x050505});
 
 /* ═══════ PRNG ═══════ */
 class PRNG {
@@ -304,6 +365,17 @@ function generateChunkData(cx, cz) {
     m[mid+i][0] = true; m[mid+i][1] = true; // West
     m[mid+i][CSZ-1] = true; m[mid+i][CSZ-2] = true; // East
   }
+
+  // Force spawn lobby if this is chunk (0,0)
+  if (cx === 0 && cz === 0) {
+    for(let y=8; y<=16; y++) {
+      for(let x=8; x<=16; x++) {
+        m[y][x] = true;
+      }
+    }
+    // Remove isolated pillars in the lobby
+    m[12][12] = true;
+  }
   
   return { m, prng };
 }
@@ -337,7 +409,7 @@ function buildChunk(cx, cz) {
   const chunkGroup = new THREE.Group();
   const chunkFixtures = [];
 
-  const wg=[], fg=[], cg=[];
+  const wg=[], fg=[], cg=[], trg=[];
   const offsetX = cx * CSZ * CELL;
   const offsetZ = cz * CSZ * CELL;
 
@@ -352,7 +424,13 @@ function buildChunk(cx, cz) {
       const gc=new THREE.PlaneGeometry(CELL,CELL);gc.rotateX(Math.PI/2);gc.translate(wx,WH,wz);cg.push(gc);
 
       // Walls
-      const wall=(x,z,ry)=>{const g=new THREE.PlaneGeometry(CELL,WH);g.rotateY(ry);g.translate(x,WH/2,z);wg.push(g);};
+      const wall=(x,z,ry)=>{
+        const g=new THREE.PlaneGeometry(CELL,WH);g.rotateY(ry);g.translate(x,WH/2,z);wg.push(g);
+        // Baseboard
+        const tb=new THREE.PlaneGeometry(CELL,0.12);tb.rotateY(ry);tb.translate(x+Math.sin(ry)*0.01, 0.06, z+Math.cos(ry)*0.01);trg.push(tb);
+        // Crown Molding
+        const tc=new THREE.PlaneGeometry(CELL,0.08);tc.rotateY(ry);tc.translate(x+Math.sin(ry)*0.01, WH-0.04, z+Math.cos(ry)*0.01);trg.push(tc);
+      };
       
       // Determine if neighbors in current chunk are walls. If on border, check adjacent chunk data (lazy init if needed).
       const getM = (r, c) => {
@@ -373,10 +451,11 @@ function buildChunk(cx, cz) {
     }
   }
 
-  const mw=mergeBatch(wg,matW), mf=mergeBatch(fg,matF), mc=mergeBatch(cg,matC);
+  const mw=mergeBatch(wg,matW), mf=mergeBatch(fg,matF), mc=mergeBatch(cg,matC), mt=mergeBatch(trg,trimMat);
   if(mw) chunkGroup.add(mw);
   if(mf) chunkGroup.add(mf);
   if(mc) chunkGroup.add(mc);
+  if(mt) chunkGroup.add(mt);
 
   /* — Props & Lights — */
   const tubeGeo=new THREE.BoxGeometry(1.2,0.04,0.10);
@@ -386,16 +465,40 @@ function buildChunk(cx, cz) {
       const wx = offsetX + col*CELL+CELL/2;
       const wz = offsetZ + row*CELL+CELL/2;
       
+      // Ceiling Vents
+      if(prng.next() < 0.12) {
+        const vent = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), ventMat);
+        vent.rotation.x = Math.PI/2;
+        vent.position.set(wx, WH-0.005, wz);
+        chunkGroup.add(vent);
+        continue;
+      }
+      
       const dead = prng.next() < 0.12;
+      const brokenHanging = !dead && prng.next() < 0.08;
+      
       const housing=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.025,0.16),housingMat);
-      housing.position.set(wx,WH-.005,wz); chunkGroup.add(housing);
-
+      housing.position.set(wx,WH-.005,wz); 
+      
       const eMat=new THREE.MeshStandardMaterial({color:0xfff6d0,emissive:0xfff6d0,emissiveIntensity:dead?0.03:0.92,roughness:.6});
-      const tube=new THREE.Mesh(tubeGeo,eMat);tube.position.set(wx,WH-.025,wz);chunkGroup.add(tube);
+      const tube=new THREE.Mesh(tubeGeo,eMat);tube.position.set(wx,WH-.025,wz);
+      
+      if(brokenHanging) {
+        housing.rotation.z = Math.PI/5.5;
+        housing.position.y -= 0.15;
+        housing.position.x += 0.2;
+        tube.rotation.z = Math.PI/5.5;
+        tube.position.y -= 0.15;
+        tube.position.x += 0.2;
+      }
+      
+      chunkGroup.add(housing);
+      chunkGroup.add(tube);
       
       if(!dead){
+        const lightY = brokenHanging ? WH - 0.28 : WH - 0.13;
         chunkFixtures.push({
-          pos: new THREE.Vector3(wx, WH-.13, wz),
+          pos: new THREE.Vector3(wx, lightY, wz),
           eMat: eMat,
           base: .88+prng.next()*.55,
           wSpd: 1.4+prng.next()*3.5,
@@ -411,13 +514,24 @@ function buildChunk(cx, cz) {
     }
   }
 
+  // Cabinets
+  for(let i=0; i<6; i++) {
+    const row = Math.floor(prng.next()*CSZ), col = Math.floor(prng.next()*CSZ);
+    if(m[row][col] && prng.next() < 0.6) {
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.4, 0.6), cabinetMat);
+      cab.position.set(offsetX + col*CELL+CELL/2+(prng.next()-.5)*CELL*.6, 0.7, offsetZ + row*CELL+CELL/2+(prng.next()-.5)*CELL*.6);
+      cab.rotation.y = prng.next()*Math.PI*2;
+      chunkGroup.add(cab);
+    }
+  }
+
   // Boxes
-  for(let i=0; i<4; i++) {
+  for(let i=0; i<5; i++) {
     const row = Math.floor(prng.next()*CSZ), col = Math.floor(prng.next()*CSZ);
     if(m[row][col]) {
       const w=.35+prng.next()*.5, d=.3+prng.next()*.4, h=.25+prng.next()*.45;
       const box=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),boxMat);
-      box.position.set(offsetX + col*CELL+CELL/2+(prng.next()-.5)*CELL*.5, h/2, offsetZ + row*CELL+CELL/2+(prng.next()-.5)*CELL*.5);
+      box.position.set(offsetX + col*CELL+CELL/2+(prng.next()-.5)*CELL*.6, h/2, offsetZ + row*CELL+CELL/2+(prng.next()-.5)*CELL*.6);
       box.rotation.y = prng.next()*Math.PI*2;
       chunkGroup.add(box);
     }
