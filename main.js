@@ -857,7 +857,7 @@ updateChunks(camera.position.x, camera.position.z);
   // Level -1 Timer
   levelTime += dt;
   if (currentLevel === 0) {
-    const timeLimit = 300; // 5 minutes
+    const timeLimit = 180; // 3 minutes
     if (Math.floor(levelTime) > Math.floor(levelTime - dt)) {
       console.log(`Time until Level -1: ${timeLimit - Math.floor(levelTime)}s`);
     }
