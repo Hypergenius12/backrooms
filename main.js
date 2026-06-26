@@ -318,8 +318,8 @@ function generateChunkData(cx, cz) {
 
   if (currentLevel === -1) {
     for (let i = 0; i < 4; i++) {
-      const w = 8 + Math.floor(prng.next() * 10);
-      const h = 8 + Math.floor(prng.next() * 10);
+      const w = 4 + Math.floor(prng.next() * 6);
+      const h = 4 + Math.floor(prng.next() * 6);
       const x = 1 + Math.floor(prng.next() * (CSZ - w - 2));
       const y = 1 + Math.floor(prng.next() * (CSZ - h - 2));
       for (let r = y; r < y + h; r++) {
