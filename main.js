@@ -855,14 +855,16 @@ updateChunks(camera.position.x, camera.position.z);
   const dt=Math.min(clock.getDelta(),.05),time=clock.elapsedTime;
 
   // Level -1 Timer
-  levelTime += dt;
-  if (currentLevel === 0) {
-    const timeLimit = 180; // 3 minutes
-    if (Math.floor(levelTime) > Math.floor(levelTime - dt)) {
-      console.log(`Time until Level -1: ${timeLimit - Math.floor(levelTime)}s`);
-    }
-    if (levelTime >= timeLimit) {
-      loadLevel(-1);
+  if (locked) {
+    levelTime += dt;
+    if (currentLevel === 0) {
+      const timeLimit = 180; // 3 minutes
+      if (Math.floor(levelTime) > Math.floor(levelTime - dt)) {
+        console.log(`Time until Level -1: ${timeLimit - Math.floor(levelTime)}s`);
+      }
+      if (levelTime >= timeLimit) {
+        loadLevel(-1);
+      }
     }
   }
 
