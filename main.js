@@ -171,7 +171,7 @@ function mkFloorTextures(){
   const cvR=document.createElement('canvas');cvR.width=cvR.height=S;
   const c=cv.getContext('2d'), cR=cvR.getContext('2d');
   
-  c.fillStyle='#8a7a3c';c.fillRect(0,0,S,S);
+  c.fillStyle='#b5a642';c.fillRect(0,0,S,S);
   cR.fillStyle='#d9d9d9';cR.fillRect(0,0,S,S);
 
   for(let i=0;i<S*S*.4;i++){
@@ -186,7 +186,7 @@ function mkFloorTextures(){
   for(let i=0;i<30;i++){
     const x=Math.random()*S,y=Math.random()*S,r=8+Math.random()*28;
     const g=c.createRadialGradient(x,y,0,x,y,r);
-    g.addColorStop(0,'rgba(26,16,0,.35)');g.addColorStop(1,'rgba(26,16,0,0)');
+    g.addColorStop(0,'rgba(26,16,0,.12)');g.addColorStop(1,'rgba(26,16,0,0)');
     c.fillStyle=g;c.fillRect(x-r,y-r,r*2,r*2);
     
     const gR=cR.createRadialGradient(x,y,0,x,y,r);
@@ -278,7 +278,7 @@ function mkCardboard(){
 
 const {map: floorMap, rough: floorRough} = mkFloorTextures();
 const matW=new THREE.MeshLambertMaterial({map:realWallTex,side:THREE.DoubleSide});
-const matF=new THREE.MeshStandardMaterial({map:floorMap, roughnessMap:floorRough, metalness:0.2, color:0x7a6a2c});
+const matF=new THREE.MeshStandardMaterial({map:floorMap, roughnessMap:floorRough, metalness:0.2, color:0xffffff});
 const matC=new THREE.MeshLambertMaterial({map:mkCeil()});
 const boxMat=new THREE.MeshLambertMaterial({map:mkCardboard()});
 const pipeMat=new THREE.MeshLambertMaterial({color:0x707058});
@@ -307,47 +307,53 @@ let globalFixtures = [];
 function getChunkKey(cx, cz) { return `${cx},${cz}`; }
 
 function generateChunkData(cx, cz) {
-  const prng = new PRNG((cx * 73856093 ^ cz * 19349663) >>> 0);
-  const m = Array.from({length: CSZ}, () => new Array(CSZ).fill(false));
-  
-  function carve(x, y) {
-    m[y][x] = true;
-    const dirs = [[0,-2],[0,2],[-2,0],[2,0]].sort(() => prng.next() - 0.5);
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx, ny = y + dy;
-      if (nx > 0 && nx < CSZ-1 && ny > 0 && ny < CSZ-1 && !m[ny][nx]) {
-        m[y + dy/2][x + dx/2] = true;
-        carve(nx, ny);
+  const prng = new PRNG(Math.abs(cx * 10000 + cz) ^ 12345);
+  const m = Array(CSZ).fill(0).map(() => Array(CSZ).fill(false));
+
+  const numRooms = 6 + Math.floor(prng.next() * 5);
+  const rooms = [];
+  for(let i=0; i<numRooms; i++) {
+    const w = 3 + Math.floor(prng.next() * 7);
+    const h = 3 + Math.floor(prng.next() * 7);
+    const x = 1 + Math.floor(prng.next() * (CSZ - w - 2));
+    const y = 1 + Math.floor(prng.next() * (CSZ - h - 2));
+    rooms.push({x, y, w, h});
+    for(let r=y; r<y+h; r++) {
+      for(let c=x; c<x+w; c++) m[r][c] = true;
+    }
+  }
+
+  // Connect rooms with rigid corridors
+  for(let i=0; i<rooms.length-1; i++) {
+    let currX = Math.floor(rooms[i].x + rooms[i].w/2);
+    let currY = Math.floor(rooms[i].y + rooms[i].h/2);
+    const tgtX = Math.floor(rooms[i+1].x + rooms[i+1].w/2);
+    const tgtY = Math.floor(rooms[i+1].y + rooms[i+1].h/2);
+    
+    if (prng.next() > 0.5) {
+      while(currX !== tgtX) { m[currY][currX] = true; currX += (tgtX > currX) ? 1 : -1; }
+      while(currY !== tgtY) { m[currY][currX] = true; currY += (tgtY > currY) ? 1 : -1; }
+    } else {
+      while(currY !== tgtY) { m[currY][currX] = true; currY += (tgtY > currY) ? 1 : -1; }
+      while(currX !== tgtX) { m[currY][currX] = true; currX += (tgtX > currX) ? 1 : -1; }
+    }
+  }
+
+  // Sprawling linear corridors
+  for(let i=0; i<15; i++) {
+    let x = Math.floor(prng.next() * CSZ);
+    let y = Math.floor(prng.next() * CSZ);
+    let dir = Math.floor(prng.next() * 4);
+    const len = 4 + Math.floor(prng.next() * 15);
+    for(let j=0; j<len; j++) {
+      if(x>0 && x<CSZ-1 && y>0 && y<CSZ-1) m[y][x] = true;
+      if(dir===0) x++; else if(dir===1) x--; else if(dir===2) y++; else y--;
+      if(prng.next() < 0.15) {
+        dir = Math.floor(prng.next() * 4); // sharp turns
       }
     }
   }
   
-  // Starting points for carving
-  carve(2, 2);
-  carve(CSZ-3, CSZ-3);
-
-  const open=(rx,ry,w,h)=>{for(let y=ry;y<ry+h&&y<CSZ;y++)for(let x=rx;x<rx+w&&x<CSZ;x++)if(y>0&&x>0&&y<CSZ-1&&x<CSZ-1)m[y][x]=true;};
-  
-  // Add large rooms randomly
-  for(let i=0; i<6; i++) {
-    let rw = 5 + Math.floor(prng.next() * 6);
-    let rh = 5 + Math.floor(prng.next() * 6);
-    let rx = 1 + Math.floor(prng.next() * (CSZ - rw - 2));
-    let ry = 1 + Math.floor(prng.next() * (CSZ - rh - 2));
-    open(rx, ry, rw, rh);
-  }
-
-  // Widen passages
-  const copy=m.map(r=>[...r]);
-  for(let y=1;y<CSZ-1;y++){
-    for(let x=1;x<CSZ-1;x++){
-      if(copy[y][x] && prng.next() < 0.4){
-        if(x+1<CSZ-1)m[y][x+1]=true;
-        if(y+1<CSZ-1)m[y+1][x]=true;
-      }
-    }
-  }
-
   // Add isolated pillars
   for(let y=2;y<CSZ-2;y+=3){
     for(let x=2;x<CSZ-2;x+=3){
@@ -373,8 +379,6 @@ function generateChunkData(cx, cz) {
         m[y][x] = true;
       }
     }
-    // Remove isolated pillars in the lobby
-    m[12][12] = true;
   }
   
   return { m, prng };
@@ -609,12 +613,27 @@ class Entity{
     this.state='wander';
     this.stateTimer=0;
     this.lastGrowl=0;
-    this._spawn();
+    setTimeout(() => this._spawn(camera.position), 500); // Spawn relatively to player
   }
-  _spawn(){
-    // Spawn somewhat far from player
-    this.pos.set(6 + (Math.random()>0.5?40:-40), 6 + (Math.random()>0.5?40:-40));
-    this.group.position.set(this.pos.x,0,this.pos.y);
+  _spawn(playerPos){
+    if(!playerPos) return;
+    for(let i=0; i<100; i++) {
+      const dist = 30 + Math.random()*30; // 30-60m away
+      const angle = Math.random() * Math.PI * 2;
+      const nx = playerPos.x + Math.cos(angle) * dist;
+      const nz = playerPos.z + Math.sin(angle) * dist;
+      
+      if(this._canWalk(nx, nz)){
+        this.pos.set(nx, nz);
+        this.group.position.set(this.pos.x, 0, this.pos.y);
+        this.state = 'wander';
+        this.dir.set(1, 0);
+        return;
+      }
+    }
+    // Fallback if no valid spot found in 100 tries
+    this.pos.set(playerPos.x+10, playerPos.z+10);
+    this.group.position.set(this.pos.x, 0, this.pos.y);
   }
   _canWalk(wx,wz){
     return isWalkable(wx, wz);
@@ -630,7 +649,7 @@ class Entity{
     const dist=toPlayer.length();
 
     // If too far, despawn and respawn closer (keep up with player in infinite world)
-    if (dist > 150) { this._spawn(); return dist; }
+    if (dist > 150) { this._spawn(playerPos); return dist; }
 
     if(dist<18&&this.state!=='chase'){this.state='chase';this.stateTimer=0;}
     else if(dist>28&&this.state==='chase'){this.state='wander';this.stateTimer=0;this._pickWanderDir();}
