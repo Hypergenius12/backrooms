@@ -451,10 +451,6 @@ function buildChunk(cx, cz) {
       // Walls
       const wall=(x,z,ry)=>{
         const g=new THREE.PlaneGeometry(CELL,WH);g.rotateY(ry);g.translate(x,WH/2,z);wg.push(g);
-        // Baseboard
-        const tb=new THREE.PlaneGeometry(CELL,0.12);tb.rotateY(ry);tb.translate(x+Math.sin(ry)*0.01, 0.06, z+Math.cos(ry)*0.01);trg.push(tb);
-        // Crown Molding
-        const tc=new THREE.PlaneGeometry(CELL,0.08);tc.rotateY(ry);tc.translate(x+Math.sin(ry)*0.01, WH-0.04, z+Math.cos(ry)*0.01);trg.push(tc);
       };
       
       // Determine if neighbors in current chunk are walls. If on border, check adjacent chunk data (lazy init if needed).
@@ -857,6 +853,18 @@ updateChunks(camera.position.x, camera.position.z);
 (function tick(){
   requestAnimationFrame(tick);
   const dt=Math.min(clock.getDelta(),.05),time=clock.elapsedTime;
+
+  // Level -1 Timer
+  levelTime += dt;
+  if (currentLevel === 0) {
+    const timeLimit = 300; // 5 minutes
+    if (Math.floor(levelTime) > Math.floor(levelTime - dt)) {
+      console.log(`Time until Level -1: ${timeLimit - Math.floor(levelTime)}s`);
+    }
+    if (levelTime >= timeLimit) {
+      loadLevel(-1);
+    }
+  }
 
   let moving=false,sprint=false;
   if(locked){
