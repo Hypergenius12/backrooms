@@ -294,6 +294,13 @@ const housingMat=new THREE.MeshLambertMaterial({color:0x555544});
 const trimMat=new THREE.MeshLambertMaterial({color:0x090703});
 const cabinetMat=new THREE.MeshStandardMaterial({color:0x6a6c6e, roughness:0.35, metalness:0.75});
 const ventMat=new THREE.MeshLambertMaterial({color:0x050505});
+// Level -1 warehouse props
+const whPipeMat=new THREE.MeshStandardMaterial({color:0x2a2a2e, roughness:0.4, metalness:0.8});
+const whShelfMat=new THREE.MeshStandardMaterial({color:0x1a1a1e, roughness:0.5, metalness:0.7});
+const whCrateMat=new THREE.MeshLambertMaterial({color:0x0e0e10});
+const whPendantMat=new THREE.MeshStandardMaterial({color:0x1a1a20, roughness:0.3, metalness:0.9});
+const whPuddleMat=new THREE.MeshStandardMaterial({color:0x030308, roughness:0.05, metalness:0.9, transparent:true, opacity:0.6});
+const whPillarMat=new THREE.MeshStandardMaterial({color:0x0c0c0e, roughness:0.85, metalness:0.1});
 
 /* ═══════ PRNG ═══════ */
 class PRNG {
@@ -320,26 +327,40 @@ function generateChunkData(cx, cz) {
   const m = Array(CSZ).fill(0).map(() => Array(CSZ).fill(false));
 
   if (currentLevel === -1) {
-    for (let i = 0; i < 4; i++) {
-      const w = 4 + Math.floor(prng.next() * 6);
-      const h = 4 + Math.floor(prng.next() * 6);
-      const x = 1 + Math.floor(prng.next() * (CSZ - w - 2));
-      const y = 1 + Math.floor(prng.next() * (CSZ - h - 2));
-      for (let r = y; r < y + h; r++) {
-        for (let c = x; c < x + w; c++) m[r][c] = true;
-      }
+    // Warehouse: huge open rooms with thick concrete pillars
+    // Start by filling most of the chunk as open space
+    for (let r = 0; r < CSZ; r++) {
+      for (let c = 0; c < CSZ; c++) m[r][c] = true;
     }
-    const mid = Math.floor(CSZ/2);
-    for(let i=-3; i<=3; i++) {
-      for(let r=0; r<CSZ; r++) m[r][mid+i] = true;
-      for(let c=0; c<CSZ; c++) m[mid+i][c] = true;
-    }
-    for (let r = 2; r < CSZ-3; r+=5) {
-      for (let c = 2; c < CSZ-3; c+=5) {
-        if (m[r][c] && m[r+1][c+1] && prng.next() < 0.6) {
-          m[r][c] = m[r+1][c] = m[r][c+1] = m[r+1][c+1] = false;
+    // Add thick concrete pillars in a grid pattern
+    for (let r = 3; r < CSZ-2; r += 5) {
+      for (let c = 3; c < CSZ-2; c += 5) {
+        if (prng.next() < 0.7) {
+          m[r][c] = false;
+          // Some pillars are 2x2 for thick support columns
+          if (prng.next() < 0.4 && r+1 < CSZ && c+1 < CSZ) {
+            m[r+1][c] = false;
+            m[r][c+1] = false;
+            m[r+1][c+1] = false;
+          }
         }
       }
+    }
+    // Cut some random walls/barriers to break up the open space
+    for (let i = 0; i < 3; i++) {
+      const horiz = prng.next() > 0.5;
+      const pos = 2 + Math.floor(prng.next() * (CSZ - 4));
+      const len = 3 + Math.floor(prng.next() * 6);
+      const start = Math.floor(prng.next() * (CSZ - len));
+      for (let j = start; j < Math.min(start + len, CSZ); j++) {
+        if (horiz) { if(pos < CSZ) m[pos][j] = false; }
+        else { if(j < CSZ) m[j][pos] = false; }
+      }
+    }
+    // Ensure borders connect to adjacent chunks
+    for (let i = 0; i < CSZ; i++) {
+      m[0][i] = true; m[CSZ-1][i] = true;
+      m[i][0] = true; m[i][CSZ-1] = true;
     }
     return { m, prng };
   }
@@ -485,6 +506,115 @@ function buildChunk(cx, cz) {
   if(mt) chunkGroup.add(mt);
 
   /* — Props & Lights — */
+  if (currentLevel === -1) {
+    // WAREHOUSE LIGHTS: sparse hanging industrial pendants
+    for(let row=2;row<CSZ;row+=5){
+      for(let col=2;col<CSZ;col+=5){
+        if(!m[row][col] || prng.next() < 0.35) continue;
+        const wx = offsetX + col*CELL+CELL/2;
+        const wz = offsetZ + row*CELL+CELL/2;
+        const dead = prng.next() < 0.3; // 30% dead lights — very dark
+        const swaying = !dead && prng.next() < 0.2;
+        // Hanging chain/wire
+        const chainLen = 1.5 + prng.next() * 2.5;
+        const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,chainLen,4), whPipeMat);
+        chain.position.set(wx, WH - chainLen/2, wz);
+        chunkGroup.add(chain);
+        // Pendant shade (cone)
+        const shade = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.25, 8, 1, true), whPendantMat);
+        shade.position.set(wx, WH - chainLen - 0.12, wz);
+        shade.rotation.x = Math.PI; // flip upside down
+        chunkGroup.add(shade);
+        // Bulb
+        const bulbColor = dead ? 0x020204 : 0x8899bb;
+        const eMat = new THREE.MeshStandardMaterial({color:bulbColor, emissive:bulbColor, emissiveIntensity:dead?0.02:0.85, roughness:0.3});
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), eMat);
+        bulb.position.set(wx, WH - chainLen - 0.08, wz);
+        chunkGroup.add(bulb);
+        if(!dead){
+          chunkFixtures.push({
+            pos: new THREE.Vector3(wx, WH - chainLen - 0.1, wz),
+            eMat: eMat,
+            base: .4+prng.next()*.3,
+            wSpd: 0.8+prng.next()*1.5,
+            wPha: prng.next()*Math.PI*2,
+            wAmp: .12,
+            doFlick: prng.next()<.35, // more flickering in warehouse
+            flickOn: false,
+            flickCD: 2+prng.next()*6,
+            flickDur: 0,
+            intensity: 0.9,
+            swaying: swaying,
+            swayParent: shade,
+            swayBulb: bulb,
+            swayChain: chain,
+            swayBaseX: wx,
+            swayBaseZ: wz,
+            swaySpeed: 0.3+prng.next()*0.5,
+            swayPhase: prng.next()*Math.PI*2
+          });
+        }
+      }
+    }
+    // WAREHOUSE PROPS: concrete pillars (visual), metal shelving, pipes
+    for(let row=3;row<CSZ-2;row+=5){
+      for(let col=3;col<CSZ-2;col+=5){
+        if(m[row][col]) continue; // this is a pillar cell (blocked)
+        const wx = offsetX + col*CELL+CELL/2;
+        const wz = offsetZ + row*CELL+CELL/2;
+        // Visual concrete pillar
+        const pH = WH;
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.2, pH, 1.2), whPillarMat);
+        pillar.position.set(wx, pH/2, wz);
+        chunkGroup.add(pillar);
+      }
+    }
+    // Metal shelving units along walls
+    for(let i=0; i<4; i++) {
+      const row = 1+Math.floor(prng.next()*(CSZ-2)), col = 1+Math.floor(prng.next()*(CSZ-2));
+      if(!m[row][col]) continue;
+      const wx = offsetX + col*CELL+CELL/2;
+      const wz = offsetZ + row*CELL+CELL/2;
+      // Shelf frame
+      const shelfH = 2.0 + prng.next()*1.5;
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.0, shelfH, 0.6), whShelfMat);
+      shelf.position.set(wx, shelfH/2, wz);
+      shelf.rotation.y = prng.next()*Math.PI;
+      chunkGroup.add(shelf);
+      // Shelf levels
+      for(let s=0; s<3; s++){
+        const plank = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.04, 0.55), whShelfMat);
+        plank.position.set(wx, 0.5 + s*0.65, wz);
+        plank.rotation.y = shelf.rotation.y;
+        chunkGroup.add(plank);
+      }
+    }
+    // Ceiling pipes running across
+    for(let i=0; i<3; i++) {
+      const row = Math.floor(prng.next()*CSZ);
+      const wx1 = offsetX;
+      const wx2 = offsetX + CSZ*CELL;
+      const wz = offsetZ + row*CELL+CELL/2;
+      const pipeR = 0.06 + prng.next()*0.06;
+      const pLen = CSZ*CELL;
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(pipeR,pipeR,pLen,6), whPipeMat);
+      pipe.rotation.z = Math.PI/2;
+      pipe.position.set(offsetX + pLen/2, WH - 0.3 - prng.next()*0.5, wz);
+      chunkGroup.add(pipe);
+    }
+    // Floor puddles (reflective dark patches)
+    for(let i=0; i<4; i++) {
+      const row = Math.floor(prng.next()*CSZ), col = Math.floor(prng.next()*CSZ);
+      if(!m[row][col]) continue;
+      const wx = offsetX + col*CELL+CELL/2;
+      const wz = offsetZ + row*CELL+CELL/2;
+      const puddle = new THREE.Mesh(new THREE.CircleGeometry(0.8+prng.next()*1.2, 12), whPuddleMat);
+      puddle.rotation.x = -Math.PI/2;
+      puddle.position.set(wx + (prng.next()-.5)*2, 0.005, wz + (prng.next()-.5)*2);
+      chunkGroup.add(puddle);
+    }
+  } else {
+  // LEVEL 0 LIGHTS & PROPS (original)
   const tubeGeo=new THREE.BoxGeometry(1.2,0.04,0.10);
   for(let row=1;row<CSZ;row+=3){
     for(let col=1;col<CSZ;col+=3){
@@ -563,6 +693,7 @@ function buildChunk(cx, cz) {
       chunkGroup.add(box);
     }
   }
+  } // end level branch
 
   scene.add(chunkGroup);
   activeChunks.set(key, {group: chunkGroup, fixtures: chunkFixtures});
@@ -606,6 +737,7 @@ scene.add(new THREE.HemisphereLight(0xd4a010,0x5a4800,.20));
 const lightPool = [];
 for(let i=0; i<16; i++) {
   const pl = new THREE.PointLight(0xd4aa28, 0, 14, 1.7);
+  pl._baseColor = new THREE.Color(0xd4aa28);
   scene.add(pl);
   lightPool.push(pl);
 }
@@ -768,6 +900,13 @@ document.getElementById('startBtn').addEventListener('click',e=>{e.stopPropagati
 overlayEl.addEventListener('click',()=>{if(!gameStarted) return; sfx.init();gameStarted=true;gameState='playing';doLock();});
 document.getElementById('resumeBtn').addEventListener('click',()=>{pauseEl.style.display='none';doLock();});
 document.getElementById('menuBtn').addEventListener('click',()=>{pauseEl.style.display='none';gameStarted=false;overlayEl.style.display='flex';});
+document.getElementById('respawnBtn').addEventListener('click',()=>{
+  document.getElementById('deathScreen').style.display='none';
+  document.body.classList.remove('is-dead');
+  gameState='playing';
+  loadLevel(currentLevel);
+  doLock();
+});
 document.addEventListener('pointerlockchange',()=>{
   locked=document.pointerLockElement===renderer.domElement;
   if(locked){overlayEl.style.display='none';pauseEl.style.display='none';if(sfx.ctx&&sfx.ctx.state==='suspended')sfx.ctx.resume();}
@@ -804,33 +943,47 @@ function loadLevel(lvl) {
 
   if (lvl === 0) {
     scene.fog.color.setHex(0x0a0800);
+    scene.fog.density = 0.046; // Reset fog density
     scene.background.setHex(0x0a0800);
     scene.children.forEach(c => {
       if(c instanceof THREE.AmbientLight) c.color.setHex(0xd4aa18);
       if(c instanceof THREE.HemisphereLight) { c.color.setHex(0xd4a010); c.groundColor.setHex(0x5a4800); }
     });
+    // Reset light pool colors to warm yellow
+    lightPool.forEach(pl => pl.color.setHex(0xd4aa28));
     entity.speed = 1.8;
     entity.chaseSpeed = 4.6;
     WH = 2.72;
   } else if (lvl === -1) {
-    scene.fog.color.setHex(0x020511);
-    scene.fog.density = 0.055;
-    scene.background.setHex(0x020511);
+    scene.fog.color.setHex(0x010108);
+    scene.fog.density = 0.04;
+    scene.background.setHex(0x010108);
     scene.children.forEach(c => {
-      if(c instanceof THREE.AmbientLight) c.color.setHex(0x223344);
-      if(c instanceof THREE.HemisphereLight) { c.color.setHex(0x224466); c.groundColor.setHex(0x050510); }
+      if(c instanceof THREE.AmbientLight) c.color.setHex(0x0a0e18);
+      if(c instanceof THREE.HemisphereLight) { c.color.setHex(0x0a1020); c.groundColor.setHex(0x020205); }
     });
+    // Switch light pool to cold blue-white
+    lightPool.forEach(pl => pl.color.setHex(0x6688aa));
     entity.speed = 2.5;
-    entity.chaseSpeed = 5.2; // Fast!
-    WH = 8.0; // Taller ceiling
+    entity.chaseSpeed = 5.2;
+    WH = 8.0; // Tall warehouse ceiling
   }
   
-  // Reset player
+  // Update entity visuals for the new level
+  entity.setVisuals(lvl);
+  
+  // Reset player position
   camera.position.set(48, 1.64, 48);
+  // Respawn entity far away, then let it find a valid spot
+  entity.pos.set(-1000, -1000);
   entity.group.position.set(-1000, 0, -1000);
-  entity.state = 'idle';
+  entity.state = 'wander';
+  entity._pickWanderDir();
   
   updateChunks(camera.position.x, camera.position.z);
+  
+  // Delayed respawn so chunks are loaded first
+  setTimeout(() => entity._spawn(camera.position), 600);
 }
 
 /* ═══════ SETTINGS ═══════ */
@@ -915,6 +1068,13 @@ updateChunks(camera.position.x, camera.position.z);
       }
     }else{fd.intensity=base;}
     if(fd.eMat) fd.eMat.emissiveIntensity = THREE.MathUtils.clamp(fd.intensity*.72, 0, 1);
+    // Warehouse swaying lights
+    if(fd.swaying && fd.swayParent){
+      const sway = Math.sin(time*fd.swaySpeed+fd.swayPhase)*0.4;
+      fd.swayParent.position.x = fd.swayBaseX + sway;
+      fd.swayBulb.position.x = fd.swayBaseX + sway;
+      fd.pos.x = fd.swayBaseX + sway;
+    }
   }
 
   // Light Pool Management (bind lights to closest fixtures)
