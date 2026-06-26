@@ -54,6 +54,41 @@ canvas#grain{
   position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
   background:rgba(4,3,0,.72);backdrop-filter:blur(8px);
 }
+
+/* Death & Overlays */
+#deathScreen {
+  position: absolute; top:0; left:0; width:100%; height:100%;
+  background: rgba(10,0,0,0.85); display: none; flex-direction: column;
+  justify-content: center; align-items: center; z-index: 1000;
+  text-align: center;
+}
+#deathScreen h1.blood {
+  font-size: 6rem; color: #ff0000; letter-spacing: 12px; margin-bottom: 10px;
+  text-shadow: 0 0 20px #ff0000, 2px 2px 0px #400;
+}
+#deathScreen p { font-size: 1.5rem; color: #aaa; margin-bottom: 40px; }
+
+#flashOverlay {
+  position: absolute; top:0; left:0; width:100%; height:100%;
+  background: white; opacity: 0; pointer-events: none; z-index: 999;
+  transition: opacity 1s ease-in-out;
+}
+
+#jumpscareStatic {
+  position: absolute; top:0; left:0; width:100%; height:100%;
+  background-image: repeating-radial-gradient(circle at 17% 32%, white, black 0.00085px);
+  opacity: 0; pointer-events: none; z-index: 998;
+  mix-blend-mode: overlay;
+}
+@keyframes staticFlicker {
+  0% { background-position: 0 0; }
+  100% { background-position: 100% 100%; }
+}
+.is-dead #jumpscareStatic {
+  opacity: 0.4;
+  animation: staticFlicker 0.1s infinite;
+}
+
 .pcard{
   background:#090700;border:1px solid rgba(200,176,64,.18);
   min-width:370px;max-width:420px;width:90%;padding:34px 38px;color:#c8b040;

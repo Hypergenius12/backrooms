@@ -16,6 +16,11 @@ scene.fog=new THREE.FogExp2(0x0a0800,0.046);
 const camera=new THREE.PerspectiveCamera(SET.fov,innerWidth/innerHeight,0.05,80);
 camera.position.set(48,1.64,48); // Spawn in exact center of chunk 0,0
 
+let gameState = 'menu'; // menu, playing, dead
+let currentLevel = 0;
+let levelTime = 0;
+
+
 addEventListener('resize',()=>{
   renderer.setSize(innerWidth,innerHeight);
   camera.aspect=innerWidth/innerHeight;
@@ -299,7 +304,8 @@ class PRNG {
 }
 
 /* ═══════ INFINITE CHUNKING ═══════ */
-const CSZ=24, CELL=4, WH=2.72; // 24x24 cells per chunk
+const CSZ=24, CELL=4;
+let WH=2.72;
 const chunkData = new Map();
 const activeChunks = new Map();
 let globalFixtures = [];
@@ -308,8 +314,33 @@ function getChunkKey(cx, cz) { return `${cx},${cz}`; }
 
 function generateChunkData(cx, cz) {
   const prng = new PRNG(Math.abs(cx * 10000 + cz) ^ 12345);
-  // Start solid (all false)
   const m = Array(CSZ).fill(0).map(() => Array(CSZ).fill(false));
+
+  if (currentLevel === -1) {
+    for (let i = 0; i < 4; i++) {
+      const w = 8 + Math.floor(prng.next() * 10);
+      const h = 8 + Math.floor(prng.next() * 10);
+      const x = 1 + Math.floor(prng.next() * (CSZ - w - 2));
+      const y = 1 + Math.floor(prng.next() * (CSZ - h - 2));
+      for (let r = y; r < y + h; r++) {
+        for (let c = x; c < x + w; c++) m[r][c] = true;
+      }
+    }
+    const mid = Math.floor(CSZ/2);
+    for(let i=-3; i<=3; i++) {
+      for(let r=0; r<CSZ; r++) m[r][mid+i] = true;
+      for(let c=0; c<CSZ; c++) m[mid+i][c] = true;
+    }
+    for (let r = 2; r < CSZ-3; r+=5) {
+      for (let c = 2; c < CSZ-3; c+=5) {
+        if (m[r][c] && m[r+1][c+1] && prng.next() < 0.6) {
+          m[r][c] = m[r+1][c] = m[r][c+1] = m[r+1][c+1] = false;
+        }
+      }
+    }
+    return { m, prng };
+  }
+  // Start solid (all false)
 
   function carve(x, y) {
     m[y][x] = true;
@@ -581,22 +612,46 @@ for(let i=0; i<16; i++) {
 class Entity{
   constructor(){
     this.group=new THREE.Group();
-    const bodyMat=new THREE.MeshLambertMaterial({color:0x0a0a0a});
-    const shadowMat=new THREE.MeshLambertMaterial({color:0x0a0a0a,transparent:true,opacity:.85});
-    const torso=new THREE.Mesh(new THREE.BoxGeometry(.4,1.1,.25),bodyMat); torso.position.y=1.3;this.group.add(torso);
-    const head=new THREE.Mesh(new THREE.SphereGeometry(.18,8,6),bodyMat); head.position.y=2.05;head.scale.y=1.3;this.group.add(head);
-    const eyeMat=new THREE.MeshStandardMaterial({color:0xff2200,emissive:0xff2200,emissiveIntensity:0.8});
-    const eyeL=new THREE.Mesh(new THREE.SphereGeometry(.03,4,4),eyeMat); eyeL.position.set(-.06,2.08,.15);this.group.add(eyeL);
-    const eyeR=new THREE.Mesh(new THREE.SphereGeometry(.03,4,4),eyeMat); eyeR.position.set(.06,2.08,.15);this.group.add(eyeR);
-    const armL=new THREE.Mesh(new THREE.BoxGeometry(.12,.9,.12),shadowMat); armL.position.set(-.3,1.1,0);armL.rotation.z=.08;this.group.add(armL);
-    const armR=new THREE.Mesh(new THREE.BoxGeometry(.12,.9,.12),shadowMat); armR.position.set(.3,1.1,0);armR.rotation.z=-.08;this.group.add(armR);
-    const legL=new THREE.Mesh(new THREE.BoxGeometry(.14,.8,.14),shadowMat); legL.position.set(-.1,.4,0);this.group.add(legL);
-    const legR=new THREE.Mesh(new THREE.BoxGeometry(.14,.8,.14),shadowMat); legR.position.set(.1,.4,0);this.group.add(legR);
-    this.glow=new THREE.PointLight(0xff1100,.3,8,2); this.glow.position.y=1.8;this.group.add(this.glow);
-    this.arms=[armL,armR]; this.legs=[legL,legR];
     scene.add(this.group);
+    this.setVisuals(0);
+
     
-    this.pos=new THREE.Vector2();
+    
+  setVisuals(lvl) {
+    while(this.group.children.length > 0){ 
+      this.group.remove(this.group.children[0]); 
+    }
+    
+    if (lvl === 0) {
+      const bodyMat=new THREE.MeshLambertMaterial({color:0x0a0a0a});
+      const shadowMat=new THREE.MeshLambertMaterial({color:0x0a0a0a,transparent:true,opacity:.85});
+      const torso=new THREE.Mesh(new THREE.BoxGeometry(.4,1.1,.25),bodyMat); torso.position.y=1.3;this.group.add(torso);
+      const head=new THREE.Mesh(new THREE.SphereGeometry(.18,8,6),bodyMat); head.position.y=2.05;head.scale.y=1.3;this.group.add(head);
+      const eyeMat=new THREE.MeshStandardMaterial({color:0xff2200,emissive:0xff2200,emissiveIntensity:0.8});
+      const eyeL=new THREE.Mesh(new THREE.SphereGeometry(.03,4,4),eyeMat); eyeL.position.set(-.06,2.08,.15);this.group.add(eyeL);
+      const eyeR=new THREE.Mesh(new THREE.SphereGeometry(.03,4,4),eyeMat); eyeR.position.set(.06,2.08,.15);this.group.add(eyeR);
+      const armL=new THREE.Mesh(new THREE.BoxGeometry(.12,.9,.12),shadowMat); armL.position.set(-.3,1.1,0);armL.rotation.z=.08;this.group.add(armL);
+      const armR=new THREE.Mesh(new THREE.BoxGeometry(.12,.9,.12),shadowMat); armR.position.set(.3,1.1,0);armR.rotation.z=-.08;this.group.add(armR);
+      const legL=new THREE.Mesh(new THREE.BoxGeometry(.14,.8,.14),shadowMat); legL.position.set(-.1,.4,0);this.group.add(legL);
+      const legR=new THREE.Mesh(new THREE.BoxGeometry(.14,.8,.14),shadowMat); legR.position.set(.1,.4,0);this.group.add(legR);
+      this.glow=new THREE.PointLight(0xff1100,.3,8,2); this.glow.position.y=1.8;this.group.add(this.glow);
+      this.arms=[armL,armR]; this.legs=[legL,legR];
+    } else if (lvl === -1) {
+      // The Smiler
+      const cloudMat=new THREE.MeshLambertMaterial({color:0x000000, transparent:true, opacity:0.95});
+      const cloud=new THREE.Mesh(new THREE.SphereGeometry(.5,16,16),cloudMat); cloud.position.y=1.8;
+      this.group.add(cloud);
+      const eyeMat=new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xffffff,emissiveIntensity:1.0});
+      const eyeL=new THREE.Mesh(new THREE.SphereGeometry(.05,8,8),eyeMat); eyeL.position.set(-.15,1.9,.45);this.group.add(eyeL);
+      const eyeR=new THREE.Mesh(new THREE.SphereGeometry(.05,8,8),eyeMat); eyeR.position.set(.15,1.9,.45);this.group.add(eyeR);
+      const smile=new THREE.Mesh(new THREE.TorusGeometry(.2,.03,8,16,Math.PI),eyeMat);
+      smile.position.set(0,1.7,.45); smile.rotation.z=Math.PI; this.group.add(smile);
+      this.glow=new THREE.PointLight(0xffffff,.5,12,2); this.glow.position.y=1.8;this.group.add(this.glow);
+      this.arms=[]; this.legs=[];
+    }
+  }
+  
+  this.pos=new THREE.Vector2();
     this.dir=new THREE.Vector2(1,0);
     this.speed=1.8;
     this.chaseSpeed=4.5;
@@ -670,8 +725,8 @@ class Entity{
     else if(this.dir.lengthSq()>0) this.group.rotation.y=Math.atan2(this.dir.x,this.dir.y);
 
     const walkCycle=Math.sin(time*8)*.25*(spd>0?1:0);
-    this.arms[0].rotation.x=walkCycle; this.arms[1].rotation.x=-walkCycle;
-    this.legs[0].rotation.x=-walkCycle; this.legs[1].rotation.x=walkCycle;
+    if(this.arms.length>0){this.arms[0].rotation.x=walkCycle; this.arms[1].rotation.x=-walkCycle;}
+    if(this.legs.length>0){this.legs[0].rotation.x=-walkCycle; this.legs[1].rotation.x=walkCycle;}
     this.group.children[0].rotation.z=Math.sin(time*3)*.02;
     this.glow.intensity=.2+Math.sin(time*2)*.1+(this.state==='chase'?.15:0);
 
@@ -710,8 +765,8 @@ const pauseEl=document.getElementById('pause');
 let locked=false,gameStarted=false,yaw=0,pitch=0;
 
 function doLock(){renderer.domElement.requestPointerLock();}
-document.getElementById('startBtn').addEventListener('click',e=>{e.stopPropagation();sfx.init();gameStarted=true;doLock();});
-overlayEl.addEventListener('click',()=>{sfx.init();gameStarted=true;doLock();});
+document.getElementById('startBtn').addEventListener('click',e=>{e.stopPropagation();sfx.init();gameStarted=true;gameState='playing';doLock();});
+overlayEl.addEventListener('click',()=>{if(!gameStarted) return; sfx.init();gameStarted=true;gameState='playing';doLock();});
 document.getElementById('resumeBtn').addEventListener('click',()=>{pauseEl.style.display='none';doLock();});
 document.getElementById('menuBtn').addEventListener('click',()=>{pauseEl.style.display='none';gameStarted=false;overlayEl.style.display='flex';});
 document.addEventListener('pointerlockchange',()=>{
@@ -729,6 +784,55 @@ document.addEventListener('mousemove',e=>{
 const keys={};
 addEventListener('keydown',e=>{keys[e.code]=true;});
 addEventListener('keyup',e=>{keys[e.code]=false;});
+
+
+/* ═══════ LEVEL LOGIC ═══════ */
+function loadLevel(lvl) {
+  if (lvl === -1) {
+    flashOverlay.style.opacity = '1';
+    setTimeout(() => { flashOverlay.style.opacity = '0'; }, 2000);
+  }
+  currentLevel = lvl;
+  levelTime = 0;
+  
+  // Clear chunks
+  for (const [key, chunk] of activeChunks.entries()) {
+    scene.remove(chunk.group);
+  }
+  activeChunks.clear();
+  chunkData.clear();
+  globalFixtures = [];
+
+  if (lvl === 0) {
+    scene.fog.color.setHex(0x0a0800);
+    scene.background.setHex(0x0a0800);
+    scene.children.forEach(c => {
+      if(c instanceof THREE.AmbientLight) c.color.setHex(0xd4aa18);
+      if(c instanceof THREE.HemisphereLight) { c.color.setHex(0xd4a010); c.groundColor.setHex(0x5a4800); }
+    });
+    entity.speed = 1.8;
+    entity.chaseSpeed = 4.6;
+    WH = 2.72;
+  } else if (lvl === -1) {
+    scene.fog.color.setHex(0x020511);
+    scene.fog.density = 0.055;
+    scene.background.setHex(0x020511);
+    scene.children.forEach(c => {
+      if(c instanceof THREE.AmbientLight) c.color.setHex(0x223344);
+      if(c instanceof THREE.HemisphereLight) { c.color.setHex(0x224466); c.groundColor.setHex(0x050510); }
+    });
+    entity.speed = 2.5;
+    entity.chaseSpeed = 5.2; // Fast!
+    WH = 8.0; // Taller ceiling
+  }
+  
+  // Reset player
+  camera.position.set(48, 1.64, 48);
+  entity.group.position.set(-1000, 0, -1000);
+  entity.state = 'idle';
+  
+  updateChunks(camera.position.x, camera.position.z);
+}
 
 /* ═══════ SETTINGS ═══════ */
 function bindS(id,vid,init,suf,cb){
@@ -760,7 +864,7 @@ updateChunks(camera.position.x, camera.position.z);
   let moving=false,sprint=false;
   if(locked){
     sprint=keys['ShiftLeft']||keys['ShiftRight'];
-    const spd=sprint?8.4:4.2;
+    const spd=sprint?5.0:2.5;
     _fwd.set(-Math.sin(yaw),0,-Math.cos(yaw));
     _rgt.set(Math.cos(yaw),0,-Math.sin(yaw));
     _mv.set(0,0,0);
