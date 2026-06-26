@@ -308,74 +308,64 @@ function getChunkKey(cx, cz) { return `${cx},${cz}`; }
 
 function generateChunkData(cx, cz) {
   const prng = new PRNG(Math.abs(cx * 10000 + cz) ^ 12345);
+  // Start solid (all false)
   const m = Array(CSZ).fill(0).map(() => Array(CSZ).fill(false));
 
-  const numRooms = 6 + Math.floor(prng.next() * 5);
-  const rooms = [];
-  for(let i=0; i<numRooms; i++) {
-    const w = 3 + Math.floor(prng.next() * 7);
-    const h = 3 + Math.floor(prng.next() * 7);
-    const x = 1 + Math.floor(prng.next() * (CSZ - w - 2));
-    const y = 1 + Math.floor(prng.next() * (CSZ - h - 2));
-    rooms.push({x, y, w, h});
-    for(let r=y; r<y+h; r++) {
-      for(let c=x; c<x+w; c++) m[r][c] = true;
-    }
-  }
-
-  // Connect rooms with rigid corridors
-  for(let i=0; i<rooms.length-1; i++) {
-    let currX = Math.floor(rooms[i].x + rooms[i].w/2);
-    let currY = Math.floor(rooms[i].y + rooms[i].h/2);
-    const tgtX = Math.floor(rooms[i+1].x + rooms[i+1].w/2);
-    const tgtY = Math.floor(rooms[i+1].y + rooms[i+1].h/2);
-    
-    if (prng.next() > 0.5) {
-      while(currX !== tgtX) { m[currY][currX] = true; currX += (tgtX > currX) ? 1 : -1; }
-      while(currY !== tgtY) { m[currY][currX] = true; currY += (tgtY > currY) ? 1 : -1; }
-    } else {
-      while(currY !== tgtY) { m[currY][currX] = true; currY += (tgtY > currY) ? 1 : -1; }
-      while(currX !== tgtX) { m[currY][currX] = true; currX += (tgtX > currX) ? 1 : -1; }
-    }
-  }
-
-  // Sprawling linear corridors
-  for(let i=0; i<15; i++) {
-    let x = Math.floor(prng.next() * CSZ);
-    let y = Math.floor(prng.next() * CSZ);
-    let dir = Math.floor(prng.next() * 4);
-    const len = 4 + Math.floor(prng.next() * 15);
-    for(let j=0; j<len; j++) {
-      if(x>0 && x<CSZ-1 && y>0 && y<CSZ-1) m[y][x] = true;
-      if(dir===0) x++; else if(dir===1) x--; else if(dir===2) y++; else y--;
-      if(prng.next() < 0.15) {
-        dir = Math.floor(prng.next() * 4); // sharp turns
+  function carve(x, y) {
+    m[y][x] = true;
+    const dirs = [[0,-2],[0,2],[-2,0],[2,0]].sort(() => prng.next() - 0.5);
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      if (nx > 0 && nx < CSZ-1 && ny > 0 && ny < CSZ-1 && !m[ny][nx]) {
+        m[y + dy/2][x + dx/2] = true;
+        carve(nx, ny);
       }
     }
   }
-  
-  // Add isolated pillars
-  for(let y=2;y<CSZ-2;y+=3){
-    for(let x=2;x<CSZ-2;x+=3){
-      let open_count=0;
-      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(m[y+dy][x+dx])open_count++;
-      if(open_count>=8 && prng.next()<.25) m[y][x]=false;
+
+  // Carve maze from multiple starting points to ensure it covers the chunk well
+  carve(2, 2);
+  carve(CSZ-3, CSZ-3);
+
+  // Wall degradation: Turn dead-ends into loops.
+  // The user wants it dense, so only remove ~22% of separating walls.
+  for (let y = 1; y < CSZ-1; y++) {
+    for (let x = 1; x < CSZ-1; x++) {
+      if (!m[y][x]) { // if it's a wall
+        const horiz = m[y][x-1] && m[y][x+1] && !m[y-1][x] && !m[y+1][x];
+        const vert = m[y-1][x] && m[y+1][x] && !m[y][x-1] && !m[y][x+1];
+        if ((horiz || vert) && prng.next() < 0.22) {
+          m[y][x] = true;
+        }
+      }
     }
   }
 
-  // Guarantee openings on borders so chunks always connect!
-  const mid = Math.floor(CSZ/2);
-  for(let i=-2; i<=2; i++) {
-    m[0][mid+i] = true; m[1][mid+i] = true; // North
-    m[CSZ-1][mid+i] = true; m[CSZ-2][mid+i] = true; // South
-    m[mid+i][0] = true; m[mid+i][1] = true; // West
-    m[mid+i][CSZ-1] = true; m[mid+i][CSZ-2] = true; // East
+  // Ensure borders are open to connect chunks seamlessly.
+  for (let i = 1; i < CSZ-1; i+=2) {
+    m[0][i] = true; 
+    m[CSZ-1][i] = true; 
+    m[i][0] = true; 
+    m[i][CSZ-1] = true; 
+  }
+  
+  // Occasional scattered small rooms/pillars
+  const numRooms = 1 + Math.floor(prng.next() * 2);
+  for(let i=0; i<numRooms; i++) {
+    const rx = 2 + Math.floor(prng.next() * (CSZ - 6));
+    const ry = 2 + Math.floor(prng.next() * (CSZ - 6));
+    for(let r=ry; r<ry+3; r++) {
+      for(let c=rx; c<rx+3; c++) {
+        m[r][c] = true; // Open room
+      }
+    }
+    if (prng.next() < 0.6) m[ry+1][rx+1] = false; // Add central pillar
   }
 
   // Force spawn lobby if this is chunk (0,0)
   if (cx === 0 && cz === 0) {
-    for(let y=8; y<=16; y++) {
-      for(let x=8; x<=16; x++) {
+    for(let y=10; y<=14; y++) {
+      for(let x=10; x<=14; x++) {
         m[y][x] = true;
       }
     }
