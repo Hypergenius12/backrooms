@@ -614,8 +614,15 @@ class Entity{
     this.group=new THREE.Group();
     scene.add(this.group);
     this.setVisuals(0);
-
-    
+    this.pos=new THREE.Vector2();
+    this.dir=new THREE.Vector2(1,0);
+    this.speed=1.8;
+    this.chaseSpeed=4.5;
+    this.state='wander';
+    this.stateTimer=0;
+    this.lastGrowl=0;
+    setTimeout(() => this._spawn(camera.position), 500); // Spawn relatively to player
+  }
     
   setVisuals(lvl) {
     while(this.group.children.length > 0){ 
@@ -649,16 +656,6 @@ class Entity{
       this.glow=new THREE.PointLight(0xffffff,.5,12,2); this.glow.position.y=1.8;this.group.add(this.glow);
       this.arms=[]; this.legs=[];
     }
-  }
-  
-  this.pos=new THREE.Vector2();
-    this.dir=new THREE.Vector2(1,0);
-    this.speed=1.8;
-    this.chaseSpeed=4.5;
-    this.state='wander';
-    this.stateTimer=0;
-    this.lastGrowl=0;
-    setTimeout(() => this._spawn(camera.position), 500); // Spawn relatively to player
   }
   _spawn(playerPos){
     if(!playerPos) return;
