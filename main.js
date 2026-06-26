@@ -285,6 +285,9 @@ const {map: floorMap, rough: floorRough} = mkFloorTextures();
 const matW=new THREE.MeshLambertMaterial({map:realWallTex,side:THREE.DoubleSide});
 const matF=new THREE.MeshStandardMaterial({map:floorMap, roughnessMap:floorRough, metalness:0.2, color:0xffffff});
 const matC=new THREE.MeshLambertMaterial({map:mkCeil()});
+const matWHWall=new THREE.MeshLambertMaterial({color:0x040405, side:THREE.DoubleSide});
+const matWHFloor=new THREE.MeshStandardMaterial({color:0x060608, roughness: 0.9, metalness: 0.1});
+const matWHCeil=new THREE.MeshLambertMaterial({color:0x020202});
 const boxMat=new THREE.MeshLambertMaterial({map:mkCardboard()});
 const pipeMat=new THREE.MeshLambertMaterial({color:0x707058});
 const housingMat=new THREE.MeshLambertMaterial({color:0x555544});
@@ -472,7 +475,10 @@ function buildChunk(cx, cz) {
     }
   }
 
-  const mw=mergeBatch(wg,matW), mf=mergeBatch(fg,matF), mc=mergeBatch(cg,matC), mt=mergeBatch(trg,trimMat);
+  const mW = currentLevel === -1 ? matWHWall : matW;
+  const mF = currentLevel === -1 ? matWHFloor : matF;
+  const mC = currentLevel === -1 ? matWHCeil : matC;
+  const mw=mergeBatch(wg,mW), mf=mergeBatch(fg,mF), mc=mergeBatch(cg,mC), mt=mergeBatch(trg,trimMat);
   if(mw) chunkGroup.add(mw);
   if(mf) chunkGroup.add(mf);
   if(mc) chunkGroup.add(mc);
@@ -931,6 +937,15 @@ updateChunks(camera.position.x, camera.position.z);
 
   sfx.step(dt,moving,sprint);
   tickGrain();
+  const lvlTr = document.getElementById('hud-tr');
+  if (currentLevel === 0) {
+    const timeLeft = Math.max(0, 180 - Math.floor(levelTime));
+    const m = Math.floor(timeLeft / 60);
+    const s = timeLeft % 60;
+    lvlTr.textContent = `LEVEL 0 [${m}:${s.toString().padStart(2, '0')}]`;
+  } else {
+    lvlTr.textContent = `LEVEL -1`;
+  }
   cxEl.textContent=camera.position.x.toFixed(1);
   czEl.textContent=camera.position.z.toFixed(1);
   renderer.render(scene,camera);
